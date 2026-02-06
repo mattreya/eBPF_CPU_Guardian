@@ -27,11 +27,16 @@ To protect CPU usage from resource-intensive bots (specifically "OpenClaw," form
     *   **Rapid sequential access/modification of multiple document files:** Such as PDFs or text files, aligning with summarization and reading capabilities.
     *   **Spawning of specific helper processes:** For instance, web browser processes (`chromium`, `firefox`) in rapid succession or for extended periods when not expected from other applications.
 
+## Related Project: Bot Behavioral Analysis (Threat Modeling)
+
+To effectively refine the behavioral detection patterns, a separate project, "Bot Behavioral Analysis," will be developed. This project will focus on building a controlled environment to run and monitor "captured bots," documenting their precise system-level behaviors. The collected data and derived signatures will then serve as intelligence to inform and update the detection rules of this `eBPF CPU Guardian` project.
+
 ## Next Steps
 
 With these foundational decisions made, the next phase will involve:
-1.  Setting up the development environment for Rust and eBPF.
-2.  Developing initial eBPF programs for basic behavioral monitoring.
-3.  Implementing the user-space Rust controller to receive eBPF events and apply cgroup rules.
-4.  Setting up a Firecracker micro-VM for testing and deployment.
-5.  Refining behavioral detection patterns through observation and iteration.
+1.  **Establishing the Bot Behavioral Analysis project in a separate repository.**
+2.  Setting up the development environment for Rust and eBPF.
+3.  Developing initial eBPF programs for basic behavioral monitoring.
+4.  Implementing the user-space Rust controller to receive eBPF events and apply cgroup rules.
+5.  Setting up a Firecracker micro-VM for testing and deployment.
+6.  Refining behavioral detection patterns through observation and iteration, leveraging the intelligence from the Bot Behavioral Analysis project.
