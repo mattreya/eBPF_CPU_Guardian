@@ -1,0 +1,3 @@
+target/
+cpu-guardian/target/
+Cargo.lock

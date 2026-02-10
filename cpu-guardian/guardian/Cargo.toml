@@ -1,0 +1,16 @@
+[package]
+name = "guardian"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+aya = "0.13"
+aya-log = "0.2"
+guardian-common = { path = "../guardian-common" }
+tokio = { version = "1", features = ["full"] }
+clap = { version = "4.0", features = ["derive"] }
+anyhow = "1.0"
+env_logger = "0.10"
+log = "0.4"
+libc = "0.2"
+bytes = "1"
