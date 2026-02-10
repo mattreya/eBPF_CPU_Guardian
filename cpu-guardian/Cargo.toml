@@ -1,0 +1,7 @@
+[workspace]
+members = [
+    "guardian",
+    "guardian-ebpf",
+    "guardian-common",
+]
+resolver = "2"
