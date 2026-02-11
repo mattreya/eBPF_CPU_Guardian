@@ -8,7 +8,7 @@ use aya::{
 use aya_log::EbpfLogger;
 use guardian_common::GuardianEvent;
 use clap::Parser;
-use log::{debug, info, warn, error};
+use log::{info, warn, error};
 use tokio::signal;
 use tokio::sync::mpsc;
 
