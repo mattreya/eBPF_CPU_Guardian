@@ -9,5 +9,16 @@ aya-log-ebpf = "0.1"
 guardian-common = { path = "../guardian-common" }
 
 [[bin]]
-name = "guardian"
+name = "guardian-ebpf"
 path = "src/main.rs"
+test = false
+
+[features]
+default = []
+
+[profile.release]
+lto = true
+panic = "abort"
+
+[profile.dev]
+panic = "abort"
