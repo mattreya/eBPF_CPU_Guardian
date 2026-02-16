@@ -5,16 +5,22 @@ use aya_ebpf::{
     macros::{tracepoint, map},
     maps::PerfEventArray,
     programs::TracePointContext,
-    helpers::{bpf_get_current_pid_tgid, bpf_get_current_comm, bpf_probe_read_user},
+    helpers::{
+        bpf_get_current_pid_tgid, bpf_get_current_comm, bpf_probe_read_user,
+        bpf_probe_read_user_str_bytes,
+    },
 };
-use guardian_common::{GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, ExecEvent, ConnectEvent, OpenEvent, EventData};
+use guardian_common::{
+    GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK,
+    ExecEvent, ConnectEvent, OpenEvent, ForkEvent, EventData,
+};
 
 use core::mem;
 
 #[map]
-static mut EVENTS: PerfEventArray<GuardianEvent> = PerfEventArray::with_max_entries(1024, 0);
+static mut EVENTS: PerfEventArray<GuardianEvent> = PerfEventArray::new(0);
 
-#[tracepoint(name = "guardian_exec")]
+#[tracepoint(category = "syscalls", name = "sys_enter_execve")]
 pub fn guardian_exec(ctx: TracePointContext) -> u32 {
     match try_guardian_exec(ctx) {
         Ok(ret) => ret,
@@ -46,7 +52,7 @@ fn try_guardian_exec(ctx: TracePointContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-#[tracepoint(name = "guardian_connect")]
+#[tracepoint(category = "syscalls", name = "sys_enter_connect")]
 pub fn guardian_connect(ctx: TracePointContext) -> u32 {
     match try_guardian_connect(ctx) {
         Ok(ret) => ret,
@@ -60,10 +66,7 @@ fn try_guardian_connect(ctx: TracePointContext) -> Result<u32, i64> {
 
     let addr_ptr: *const sockaddr = unsafe { ctx.read_at(24)? };
 
-    let mut sa = sockaddr { sa_family: 0, sa_data: [0; 14] };
-    unsafe {
-        bpf_probe_read_user(&mut sa, mem::size_of::<sockaddr>() as u32, addr_ptr as *const _)?;
-    }
+    let sa: sockaddr = unsafe { bpf_probe_read_user(addr_ptr)? };
 
     if sa.sa_family == 2 { // AF_INET
         let sin: sockaddr_in = unsafe { mem::transmute(sa) };
@@ -86,7 +89,7 @@ fn try_guardian_connect(ctx: TracePointContext) -> Result<u32, i64> {
     Ok(0)
 }
 
-#[tracepoint(name = "guardian_openat")]
+#[tracepoint(category = "syscalls", name = "sys_enter_openat")]
 pub fn guardian_openat(ctx: TracePointContext) -> u32 {
     match try_guardian_openat(ctx) {
         Ok(ret) => ret,
@@ -112,11 +115,37 @@ fn try_guardian_openat(ctx: TracePointContext) -> Result<u32, i64> {
     };
 
     unsafe {
-        bpf_probe_read_user(
-            event.data.open.filename.as_mut_ptr(),
-            event.data.open.filename.len() as u32,
-            filename_ptr as *const _,
-        )?;
+        bpf_probe_read_user_str_bytes(filename_ptr, &mut event.data.open.filename)?;
+        EVENTS.output(&ctx, &event, 0);
+    }
+
+    Ok(0)
+}
+
+#[tracepoint(category = "sched", name = "sched_process_fork")]
+pub fn guardian_fork(ctx: TracePointContext) -> u32 {
+    match try_guardian_fork(ctx) {
+        Ok(ret) => ret,
+        Err(ret) => ret as u32,
+    }
+}
+
+fn try_guardian_fork(ctx: TracePointContext) -> Result<u32, i64> {
+    let parent_pid: u32 = unsafe { ctx.read_at(24)? };
+    let child_pid: u32 = unsafe { ctx.read_at(44)? };
+
+    let event = GuardianEvent {
+        event_type: EVENT_TYPE_FORK,
+        pid: parent_pid,
+        data: EventData {
+            fork: ForkEvent {
+                parent_pid,
+                child_pid,
+            },
+        },
+    };
+
+    unsafe {
         EVENTS.output(&ctx, &event, 0);
     }
 
@@ -124,12 +153,14 @@ fn try_guardian_openat(ctx: TracePointContext) -> Result<u32, i64> {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 struct sockaddr {
     sa_family: u16,
     sa_data: [u8; 14],
 }
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 struct sockaddr_in {
     sin_family: u16,
     sin_port: u16,
@@ -138,10 +169,12 @@ struct sockaddr_in {
 }
 
 #[repr(C)]
+#[derive(Copy, Clone)]
 struct in_addr {
     s_addr: u32,
 }
 
+#[cfg(not(test))]
 #[panic_handler]
 fn panic(_info: &core::panic::PanicInfo) -> ! {
     unsafe { core::hint::unreachable_unchecked() }
