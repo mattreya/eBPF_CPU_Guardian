@@ -8,7 +8,7 @@ use aya::{
 use aya_log::EbpfLogger;
 use guardian_common::GuardianEvent;
 use clap::Parser;
-use log::{debug, info, warn, error};
+use log::{info, warn, error};
 use tokio::signal;
 use tokio::sync::mpsc;
 
@@ -36,11 +36,11 @@ async fn main() -> Result<(), anyhow::Error> {
     // This will include the eBPF object file at compile time.
     #[cfg(debug_assertions)]
     let bpf_data = include_bytes_aligned!(
-        "../../target/bpfel-unknown-none/debug/guardian"
+        "../../target/bpfel-unknown-none/debug/guardian-ebpf"
     );
     #[cfg(not(debug_assertions))]
     let bpf_data = include_bytes_aligned!(
-        "../../target/bpfel-unknown-none/release/guardian"
+        "../../target/bpfel-unknown-none/release/guardian-ebpf"
     );
 
     let mut bpf = Ebpf::load(bpf_data)?;
@@ -48,21 +48,25 @@ async fn main() -> Result<(), anyhow::Error> {
         warn!("failed to initialize eBPF logger: {}", e);
     }
 
-    let program_exec: &mut TracePoint = bpf.program_mut("guardian_exec").unwrap().try_into()?;
+    let program_exec: &mut TracePoint = bpf.program_mut("guardian_exec").ok_or_else(|| anyhow::anyhow!("program guardian_exec not found"))?.try_into()?;
     program_exec.load()?;
     program_exec.attach("syscalls", "sys_enter_execve")?;
 
-    let program_open: &mut TracePoint = bpf.program_mut("guardian_openat").unwrap().try_into()?;
+    let program_open: &mut TracePoint = bpf.program_mut("guardian_openat").ok_or_else(|| anyhow::anyhow!("program guardian_openat not found"))?.try_into()?;
     program_open.load()?;
     program_open.attach("syscalls", "sys_enter_openat")?;
 
-    let program_connect: &mut TracePoint = bpf.program_mut("guardian_connect").unwrap().try_into()?;
+    let program_connect: &mut TracePoint = bpf.program_mut("guardian_connect").ok_or_else(|| anyhow::anyhow!("program guardian_connect not found"))?.try_into()?;
     program_connect.load()?;
     program_connect.attach("syscalls", "sys_enter_connect")?;
 
+    let program_fork: &mut TracePoint = bpf.program_mut("guardian_fork").ok_or_else(|| anyhow::anyhow!("program guardian_fork not found"))?.try_into()?;
+    program_fork.load()?;
+    program_fork.attach("sched", "sched_process_fork")?;
+
     let bpf: &'static mut Ebpf = Box::leak(Box::new(bpf));
 
-    let mut perf_array = AsyncPerfEventArray::try_from(bpf.map_mut("EVENTS").unwrap())?;
+    let mut perf_array = AsyncPerfEventArray::try_from(bpf.map_mut("EVENTS").ok_or_else(|| anyhow::anyhow!("map EVENTS not found"))?)?;
 
     let (tx, mut rx) = mpsc::channel(1024);
 
