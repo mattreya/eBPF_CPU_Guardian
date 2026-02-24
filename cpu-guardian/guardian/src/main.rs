@@ -8,7 +8,7 @@ use aya::{
 use aya_log::EbpfLogger;
 use guardian_common::GuardianEvent;
 use clap::Parser;
-use log::{debug, info, warn, error};
+use log::{info, warn, error};
 use tokio::signal;
 use tokio::sync::mpsc;
 
@@ -48,17 +48,21 @@ async fn main() -> Result<(), anyhow::Error> {
         warn!("failed to initialize eBPF logger: {}", e);
     }
 
-    let program_exec: &mut TracePoint = bpf.program_mut("guardian_exec").unwrap().try_into()?;
+    let program_exec: &mut TracePoint = bpf.program_mut("sys_enter_execve").expect("program sys_enter_execve not found").try_into()?;
     program_exec.load()?;
     program_exec.attach("syscalls", "sys_enter_execve")?;
 
-    let program_open: &mut TracePoint = bpf.program_mut("guardian_openat").unwrap().try_into()?;
+    let program_open: &mut TracePoint = bpf.program_mut("sys_enter_openat").expect("program sys_enter_openat not found").try_into()?;
     program_open.load()?;
     program_open.attach("syscalls", "sys_enter_openat")?;
 
-    let program_connect: &mut TracePoint = bpf.program_mut("guardian_connect").unwrap().try_into()?;
+    let program_connect: &mut TracePoint = bpf.program_mut("sys_enter_connect").expect("program sys_enter_connect not found").try_into()?;
     program_connect.load()?;
     program_connect.attach("syscalls", "sys_enter_connect")?;
+
+    let program_fork: &mut TracePoint = bpf.program_mut("sched_process_fork").expect("program sched_process_fork not found").try_into()?;
+    program_fork.load()?;
+    program_fork.attach("sched", "sched_process_fork")?;
 
     let bpf: &'static mut Ebpf = Box::leak(Box::new(bpf));
 
