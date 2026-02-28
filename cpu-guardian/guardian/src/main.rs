@@ -8,7 +8,7 @@ use aya::{
 use aya_log::EbpfLogger;
 use guardian_common::GuardianEvent;
 use clap::Parser;
-use log::{debug, info, warn, error};
+use log::{info, warn, error};
 use tokio::signal;
 use tokio::sync::mpsc;
 
@@ -59,6 +59,10 @@ async fn main() -> Result<(), anyhow::Error> {
     let program_connect: &mut TracePoint = bpf.program_mut("guardian_connect").unwrap().try_into()?;
     program_connect.load()?;
     program_connect.attach("syscalls", "sys_enter_connect")?;
+
+    let program_fork: &mut TracePoint = bpf.program_mut("guardian_fork").unwrap().try_into()?;
+    program_fork.load()?;
+    program_fork.attach("sched", "sched_process_fork")?;
 
     let bpf: &'static mut Ebpf = Box::leak(Box::new(bpf));
 
