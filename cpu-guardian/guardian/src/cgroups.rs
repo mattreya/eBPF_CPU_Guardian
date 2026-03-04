@@ -1,6 +1,5 @@
 use std::fs;
-use std::io::Write;
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 pub struct CgroupManager {
     base_path: PathBuf,

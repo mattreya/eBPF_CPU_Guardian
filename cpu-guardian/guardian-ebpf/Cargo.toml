@@ -11,3 +11,4 @@ guardian-common = { path = "../guardian-common" }
 [[bin]]
 name = "guardian"
 path = "src/main.rs"
+test = false
