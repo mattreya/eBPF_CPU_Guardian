@@ -1,0 +1,11 @@
+{
+  "name": "guardian",
+  "version": "1.0.0",
+  "description": "eBPF CPU Guardian Interface",
+  "commands": {
+    "guardian": {
+      "handler": "python3 guardian_cmd.py",
+      "description": "Monitors CPU usage and interacts with the eBPF CPU Guardian."
+    }
+  }
+}
