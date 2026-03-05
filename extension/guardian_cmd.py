@@ -12,6 +12,30 @@ def get_cpu_status():
     except Exception as e:
         print(f"Error getting CPU status: {e}")
 
+    print("\n--- eBPF CPU Guardian: Throttled Bots ---")
+    if os.path.exists("/sys/fs/cgroup/guardian"):
+        print(f"{'PID':<8} {'COMM':<16} {'LIMIT':<8}")
+        print(f"{'-'*32}")
+        try:
+            found = False
+            for entry in os.listdir("/sys/fs/cgroup/guardian"):
+                if entry.startswith("bot_"):
+                    pid = entry.split("_")[1]
+                    comm = "[unknown]"
+                    try:
+                        with open(f"/proc/{pid}/comm", "r") as f:
+                            comm = f.read().strip()
+                    except:
+                        pass
+                    print(f"{pid:<8} {comm:<16} {'20%':<8}")
+                    found = True
+            if not found:
+                print("No bots currently throttled.")
+        except Exception:
+            print("Error reading cgroup status.")
+    else:
+        print("Guardian cgroup base not found. Is the service running?")
+
 def get_build_help():
     print("\n--- eBPF CPU Guardian: Build Instructions ---")
     print("This project requires Rust and bpf-linker to compile.")
