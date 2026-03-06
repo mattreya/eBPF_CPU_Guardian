@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use guardian_common::{GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK};
+use guardian_common::{GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK, EVENT_TYPE_UNLINK};
 
 pub struct ProcessState {
     pub pid: u32,
@@ -119,6 +119,23 @@ impl Analyzer {
                 if filename.ends_with(".pdf") || filename.ends_with(".txt") || filename.ends_with(".doc") {
                     state.score += 10;
                 }
+
+                if !state.is_bot && state.score >= self.threshold {
+                    state.is_bot = true;
+                    return Some(state.pid);
+                }
+            }
+            EVENT_TYPE_UNLINK => {
+                let state = self.processes.entry(event.pid).or_insert(ProcessState {
+                    pid: event.pid,
+                    score: 0,
+                    comm: String::new(),
+                    is_bot: false,
+                    last_open_time: None,
+                    open_count: 0,
+                });
+
+                state.score += 10;
 
                 if !state.is_bot && state.score >= self.threshold {
                     state.is_bot = true;

@@ -12,6 +12,32 @@ def get_cpu_status():
     except Exception as e:
         print(f"Error getting CPU status: {e}")
 
+    print("\n--- Throttled Bots (eBPF CPU Guardian) ---")
+    cgroup_base = "/sys/fs/cgroup/guardian"
+    if not os.path.exists(cgroup_base):
+        print("Guardian cgroup directory not found. Is the guardian running?")
+        return
+
+    found_any = False
+    for item in os.listdir(cgroup_base):
+        if item.startswith("bot_"):
+            found_any = True
+            pid = item.split("_")[1]
+            try:
+                with open(f"/proc/{pid}/comm", "r") as f:
+                    comm = f.read().strip()
+
+                with open(os.path.join(cgroup_base, item, "cpu.max"), "r") as f:
+                    cpu_max = f.read().strip()
+
+                print(f"PID: {pid} | Name: {comm} | Limit: {cpu_max}")
+            except FileNotFoundError:
+                # Process might have exited
+                print(f"PID: {pid} | Name: [EXITED]")
+
+    if not found_any:
+        print("No bots currently throttled.")
+
 def get_build_help():
     print("\n--- eBPF CPU Guardian: Build Instructions ---")
     print("This project requires Rust and bpf-linker to compile.")
