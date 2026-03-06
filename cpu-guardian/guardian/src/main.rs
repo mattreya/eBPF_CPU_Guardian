@@ -64,6 +64,10 @@ async fn main() -> Result<(), anyhow::Error> {
     program_fork.load()?;
     program_fork.attach("sched", "sched_process_fork")?;
 
+    let program_unlink: &mut TracePoint = bpf.program_mut("sys_enter_unlink").unwrap().try_into()?;
+    program_unlink.load()?;
+    program_unlink.attach("syscalls", "sys_enter_unlink")?;
+
     let bpf: &'static mut Ebpf = Box::leak(Box::new(bpf));
 
     let mut perf_array = AsyncPerfEventArray::try_from(bpf.map_mut("EVENTS").unwrap())?;
