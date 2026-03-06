@@ -1,6 +1,8 @@
-# eBPF CPU Guardian
+# eBPF CPU Guardian (a.k.a: "The Galactic Rubba")
 
 This project aims to protect CPU usage from resource-intensive bots, specifically targeting "moltbot" (also known as "clawbot" or "OpenClaw"), by employing a micro-VM environment combined with eBPF for behavioral analysis and cgroups for resource enforcement.
+
+So no matter how hard or how many bots are in your system, you will stretch...but not break!
 
 ## Problem Statement
 
