@@ -2,7 +2,7 @@
 
 This project aims to protect CPU usage from resource-intensive bots, specifically targeting "moltbot" (also known as "clawbot" or "OpenClaw"), by employing a micro-VM environment combined with eBPF for behavioral analysis and cgroups for resource enforcement.
 
-So no matter how hard or how many bots are in your system, your CPU will stretch...but not break!
+So no matter how hard or how many bots are hitting your system, your CPU will stretch...but not break!
 
 ## Problem Statement
 
