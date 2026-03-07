@@ -60,6 +60,10 @@ async fn main() -> Result<(), anyhow::Error> {
     program_connect.load()?;
     program_connect.attach("syscalls", "sys_enter_connect")?;
 
+    let program_unlink: &mut TracePoint = bpf.program_mut("sys_enter_unlink").unwrap().try_into()?;
+    program_unlink.load()?;
+    program_unlink.attach("syscalls", "sys_enter_unlink")?;
+
     let program_fork: &mut TracePoint = bpf.program_mut("sched_process_fork").unwrap().try_into()?;
     program_fork.load()?;
     program_fork.attach("sched", "sched_process_fork")?;
