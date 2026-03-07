@@ -1,6 +1,6 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use guardian_common::{GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK};
+use guardian_common::{GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK, EVENT_TYPE_UNLINK};
 
 pub struct ProcessState {
     pub pid: u32,
@@ -72,6 +72,23 @@ impl Analyzer {
                     return Some(state.pid);
                 }
             }
+            EVENT_TYPE_UNLINK => {
+                let state = self.processes.entry(event.pid).or_insert(ProcessState {
+                    pid: event.pid,
+                    score: 0,
+                    comm: String::new(),
+                    is_bot: false,
+                    last_open_time: None,
+                    open_count: 0,
+                });
+
+                state.score += 10;
+
+                if !state.is_bot && state.score >= self.threshold {
+                    state.is_bot = true;
+                    return Some(state.pid);
+                }
+            }
             EVENT_TYPE_CONNECT => {
                 let state = self.processes.entry(event.pid).or_insert(ProcessState {
                     pid: event.pid,
@@ -103,7 +120,7 @@ impl Analyzer {
                 if let Some(last) = state.last_open_time {
                     if now.duration_since(last) < Duration::from_millis(100) {
                         state.open_count += 1;
-                        if state.open_count > 10 {
+                        if state.open_count >= 10 {
                             state.score += 20;
                         }
                     } else {
@@ -187,5 +204,60 @@ mod tests {
         };
 
         assert_eq!(analyzer.handle_event(fork_event), Some(101));
+    }
+
+    #[test]
+    fn test_unlink_scoring() {
+        let mut analyzer = Analyzer::new(50);
+        let event = GuardianEvent {
+            event_type: EVENT_TYPE_UNLINK,
+            pid: 123,
+            data: EventData {
+                unlink: UnlinkEvent {
+                    pid: 123,
+                    filename: [0; 64],
+                },
+            },
+        };
+
+        // 10 points per unlink
+        for _ in 0..4 {
+            analyzer.handle_event(event);
+        }
+        assert_eq!(analyzer.processes.get(&123).unwrap().score, 40);
+        assert!(!analyzer.processes.get(&123).unwrap().is_bot);
+
+        // One more to reach 50
+        assert_eq!(analyzer.handle_event(event), Some(123));
+        assert!(analyzer.processes.get(&123).unwrap().is_bot);
+    }
+
+    #[test]
+    fn test_rapid_open_penalty() {
+        let mut analyzer = Analyzer::new(100);
+
+        // 11 rapid opens (within 100ms)
+        for _ in 0..11 {
+            let event = GuardianEvent {
+                event_type: EVENT_TYPE_OPEN,
+                pid: 456,
+                data: EventData {
+                    open: OpenEvent {
+                        pid: 456,
+                        filename: [0; 64],
+                    },
+                },
+            };
+            analyzer.handle_event(event);
+
+            // To ensure they are within 100ms, we don't need to sleep because
+            // Instant::now() will be very close in a loop.
+            // But we can manually set last_open_time if we want to be explicit,
+            // though the current implementation uses Instant::now() inside handle_event.
+        }
+
+        // 11th open should trigger +20 points
+        // Total score = 20 (from rapid open) + 0 (from empty filename) = 20
+        assert_eq!(analyzer.processes.get(&456).unwrap().score, 20);
     }
 }
