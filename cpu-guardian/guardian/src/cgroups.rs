@@ -7,10 +7,21 @@ pub struct CgroupManager {
 
 impl CgroupManager {
     pub fn new() -> Self {
+        // Enable CPU controller in root cgroup
+        if let Err(e) = fs::write("/sys/fs/cgroup/cgroup.subtree_control", "+cpu") {
+            eprintln!("Warning: Failed to enable cpu controller in root cgroup: {}. Resource enforcement might not work.", e);
+        }
+
         let base_path = PathBuf::from("/sys/fs/cgroup/guardian");
         if !base_path.exists() {
             fs::create_dir_all(&base_path).expect("Failed to create cgroup directory");
         }
+
+        // Enable CPU controller in guardian cgroup for sub-cgroups
+        if let Err(e) = fs::write(base_path.join("cgroup.subtree_control"), "+cpu") {
+            eprintln!("Warning: Failed to enable cpu controller in /sys/fs/cgroup/guardian: {}. Throttling bots might fail.", e);
+        }
+
         Self { base_path }
     }
 
