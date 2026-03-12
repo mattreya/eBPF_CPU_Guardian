@@ -8,9 +8,22 @@ pub struct CgroupManager {
 impl CgroupManager {
     pub fn new() -> Self {
         let base_path = PathBuf::from("/sys/fs/cgroup/guardian");
-        if !base_path.exists() {
-            fs::create_dir_all(&base_path).expect("Failed to create cgroup directory");
+
+        // Enable CPU controller for the guardian infrastructure
+        if let Err(e) = fs::write("/sys/fs/cgroup/cgroup.subtree_control", "+cpu") {
+            log::warn!("Failed to enable CPU controller in root cgroup: {}", e);
         }
+
+        if !base_path.exists() {
+            if let Err(e) = fs::create_dir_all(&base_path) {
+                log::error!("Failed to create cgroup directory {}: {}", base_path.display(), e);
+            }
+        }
+
+        if let Err(e) = fs::write(base_path.join("cgroup.subtree_control"), "+cpu") {
+            log::warn!("Failed to enable CPU controller in guardian cgroup: {}", e);
+        }
+
         Self { base_path }
     }
 
