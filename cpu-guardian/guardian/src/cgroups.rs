@@ -11,6 +11,15 @@ impl CgroupManager {
         if !base_path.exists() {
             fs::create_dir_all(&base_path).expect("Failed to create cgroup directory");
         }
+
+        // Enable CPU controller in the hierarchy
+        if let Err(e) = fs::write("/sys/fs/cgroup/cgroup.subtree_control", "+cpu") {
+            eprintln!("Warning: Failed to enable cpu controller in /sys/fs/cgroup: {}", e);
+        }
+        if let Err(e) = fs::write(base_path.join("cgroup.subtree_control"), "+cpu") {
+            eprintln!("Warning: Failed to enable cpu controller in {}: {}", base_path.display(), e);
+        }
+
         Self { base_path }
     }
 
