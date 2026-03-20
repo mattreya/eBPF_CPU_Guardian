@@ -5,3 +5,9 @@ members = [
     "guardian-common",
 ]
 resolver = "2"
+
+[profile.dev]
+panic = "abort"
+
+[profile.release]
+panic = "abort"
