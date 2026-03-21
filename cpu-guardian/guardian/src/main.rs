@@ -36,11 +36,11 @@ async fn main() -> Result<(), anyhow::Error> {
     // This will include the eBPF object file at compile time.
     #[cfg(debug_assertions)]
     let bpf_data = include_bytes_aligned!(
-        "../../target/bpfel-unknown-none/debug/guardian"
+        "../../target/bpfel-unknown-none/debug/guardian-ebpf"
     );
     #[cfg(not(debug_assertions))]
     let bpf_data = include_bytes_aligned!(
-        "../../target/bpfel-unknown-none/release/guardian"
+        "../../target/bpfel-unknown-none/release/guardian-ebpf"
     );
 
     let mut bpf = Ebpf::load(bpf_data)?;
@@ -63,6 +63,14 @@ async fn main() -> Result<(), anyhow::Error> {
     let program_fork: &mut TracePoint = bpf.program_mut("sched_process_fork").unwrap().try_into()?;
     program_fork.load()?;
     program_fork.attach("sched", "sched_process_fork")?;
+
+    let program_unlink: &mut TracePoint = bpf.program_mut("sys_enter_unlink").unwrap().try_into()?;
+    program_unlink.load()?;
+    program_unlink.attach("syscalls", "sys_enter_unlink")?;
+
+    let program_unlinkat: &mut TracePoint = bpf.program_mut("sys_enter_unlinkat").unwrap().try_into()?;
+    program_unlinkat.load()?;
+    program_unlinkat.attach("syscalls", "sys_enter_unlinkat")?;
 
     let bpf: &'static mut Ebpf = Box::leak(Box::new(bpf));
 
