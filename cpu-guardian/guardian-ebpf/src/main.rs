@@ -6,11 +6,12 @@ use aya_ebpf::{
     macros::{tracepoint, map},
     maps::PerfEventArray,
     programs::TracePointContext,
-    helpers::{bpf_get_current_pid_tgid, bpf_get_current_comm, bpf_probe_read_user, bpf_probe_read_user_str_bytes},
+    helpers::{bpf_get_current_pid_tgid, bpf_probe_read_user, bpf_probe_read_user_str_bytes},
 };
 use guardian_common::{
     GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK,
-    ExecEvent, ConnectEvent, OpenEvent, ForkEvent, EventData
+    EVENT_TYPE_UNLINK, EVENT_TYPE_UNLINKAT, ExecEvent, ConnectEvent, OpenEvent, ForkEvent,
+    UnlinkEvent, EventData
 };
 
 use core::mem;
@@ -49,6 +50,78 @@ fn try_sys_enter_execve(ctx: TracePointContext) -> Result<u32, i64> {
         bpf_probe_read_user_str_bytes(
             filename_ptr,
             &mut event.data.exec.comm,
+        )?;
+        EVENTS.output(&ctx, &event, 0);
+    }
+
+    Ok(0)
+}
+
+#[tracepoint(category = "syscalls", name = "sys_enter_unlink")]
+pub fn sys_enter_unlink(ctx: TracePointContext) -> u32 {
+    match try_sys_enter_unlink(ctx) {
+        Ok(ret) => ret,
+        Err(ret) => ret as u32,
+    }
+}
+
+fn try_sys_enter_unlink(ctx: TracePointContext) -> Result<u32, i64> {
+    let pid_tgid = bpf_get_current_pid_tgid();
+    let pid = (pid_tgid >> 32) as u32;
+
+    let filename_ptr: *const u8 = unsafe { ctx.read_at(16)? };
+
+    let mut event = GuardianEvent {
+        event_type: EVENT_TYPE_UNLINK,
+        pid,
+        data: EventData {
+            unlink: UnlinkEvent {
+                pid,
+                filename: [0; 64],
+            },
+        },
+    };
+
+    unsafe {
+        bpf_probe_read_user_str_bytes(
+            filename_ptr,
+            &mut event.data.unlink.filename,
+        )?;
+        EVENTS.output(&ctx, &event, 0);
+    }
+
+    Ok(0)
+}
+
+#[tracepoint(category = "syscalls", name = "sys_enter_unlinkat")]
+pub fn sys_enter_unlinkat(ctx: TracePointContext) -> u32 {
+    match try_sys_enter_unlinkat(ctx) {
+        Ok(ret) => ret,
+        Err(ret) => ret as u32,
+    }
+}
+
+fn try_sys_enter_unlinkat(ctx: TracePointContext) -> Result<u32, i64> {
+    let pid_tgid = bpf_get_current_pid_tgid();
+    let pid = (pid_tgid >> 32) as u32;
+
+    let filename_ptr: *const u8 = unsafe { ctx.read_at(24)? };
+
+    let mut event = GuardianEvent {
+        event_type: EVENT_TYPE_UNLINKAT,
+        pid,
+        data: EventData {
+            unlink: UnlinkEvent {
+                pid,
+                filename: [0; 64],
+            },
+        },
+    };
+
+    unsafe {
+        bpf_probe_read_user_str_bytes(
+            filename_ptr,
+            &mut event.data.unlink.filename,
         )?;
         EVENTS.output(&ctx, &event, 0);
     }
