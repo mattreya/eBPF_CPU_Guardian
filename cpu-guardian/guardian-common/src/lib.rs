@@ -25,6 +25,13 @@ pub struct OpenEvent {
 
 #[repr(C)]
 #[derive(Copy, Clone)]
+pub struct UnlinkEvent {
+    pub pid: u32,
+    pub filename: [u8; 64],
+}
+
+#[repr(C)]
+#[derive(Copy, Clone)]
 pub struct ForkEvent {
     pub parent_pid: u32,
     pub child_pid: u32,
@@ -34,6 +41,7 @@ pub const EVENT_TYPE_EXEC: u32 = 1;
 pub const EVENT_TYPE_CONNECT: u32 = 2;
 pub const EVENT_TYPE_OPEN: u32 = 3;
 pub const EVENT_TYPE_FORK: u32 = 4;
+pub const EVENT_TYPE_UNLINK: u32 = 5;
 
 #[repr(C)]
 #[derive(Copy, Clone)]
@@ -50,4 +58,5 @@ pub union EventData {
     pub connect: ConnectEvent,
     pub open: OpenEvent,
     pub fork: ForkEvent,
+    pub unlink: UnlinkEvent,
 }
