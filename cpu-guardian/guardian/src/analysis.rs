@@ -1,9 +1,12 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use guardian_common::{GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK};
+use guardian_common::{
+    GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK,
+    EVENT_TYPE_UNLINK, EVENT_TYPE_UNLINKAT,
+    ExecEvent, ForkEvent, UnlinkEvent, EventData,
+};
 
 pub struct ProcessState {
-    pub pid: u32,
     pub score: u32,
     pub comm: String,
     pub is_bot: bool,
@@ -24,14 +27,23 @@ impl Analyzer {
         }
     }
 
+    fn check_sensitive_extension(filename: &[u8]) -> bool {
+        let name = std::str::from_utf8(filename)
+            .unwrap_or("")
+            .trim_matches(char::from(0));
+        let lower = name.to_lowercase();
+        lower.ends_with(".pdf") || lower.ends_with(".txt") || lower.ends_with(".doc")
+    }
+
     pub fn handle_event(&mut self, event: GuardianEvent) -> Option<u32> {
+        let mut newly_detected = false;
+
         match event.event_type {
             EVENT_TYPE_FORK => {
-                let fork = unsafe { event.data.fork };
+                let fork = unsafe { &event.data.fork };
                 let is_bot = self.processes.get(&fork.parent_pid).map_or(false, |p| p.is_bot);
 
                 self.processes.insert(fork.child_pid, ProcessState {
-                    pid: fork.child_pid,
                     score: if is_bot { self.threshold } else { 0 },
                     comm: String::new(),
                     is_bot,
@@ -45,7 +57,6 @@ impl Analyzer {
             }
             EVENT_TYPE_EXEC => {
                 let state = self.processes.entry(event.pid).or_insert(ProcessState {
-                    pid: event.pid,
                     score: 0,
                     comm: String::new(),
                     is_bot: false,
@@ -53,7 +64,7 @@ impl Analyzer {
                     open_count: 0,
                 });
 
-                let exec = unsafe { event.data.exec };
+                let exec = unsafe { &event.data.exec };
                 let comm = std::str::from_utf8(&exec.comm)
                     .unwrap_or("")
                     .trim_matches(char::from(0));
@@ -69,12 +80,11 @@ impl Analyzer {
 
                 if !state.is_bot && state.score >= self.threshold {
                     state.is_bot = true;
-                    return Some(state.pid);
+                    newly_detected = true;
                 }
             }
             EVENT_TYPE_CONNECT => {
                 let state = self.processes.entry(event.pid).or_insert(ProcessState {
-                    pid: event.pid,
                     score: 0,
                     comm: String::new(),
                     is_bot: false,
@@ -86,12 +96,11 @@ impl Analyzer {
 
                 if !state.is_bot && state.score >= self.threshold {
                     state.is_bot = true;
-                    return Some(state.pid);
+                    newly_detected = true;
                 }
             }
             EVENT_TYPE_OPEN => {
                 let state = self.processes.entry(event.pid).or_insert(ProcessState {
-                    pid: event.pid,
                     score: 0,
                     comm: String::new(),
                     is_bot: false,
@@ -112,30 +121,58 @@ impl Analyzer {
                 }
                 state.last_open_time = Some(now);
 
-                let open = unsafe { event.data.open };
-                let filename = std::str::from_utf8(&open.filename)
-                    .unwrap_or("")
-                    .trim_matches(char::from(0));
-                if filename.ends_with(".pdf") || filename.ends_with(".txt") || filename.ends_with(".doc") {
+                let open = unsafe { &event.data.open };
+                if Self::check_sensitive_extension(&open.filename) {
                     state.score += 10;
                 }
 
                 if !state.is_bot && state.score >= self.threshold {
                     state.is_bot = true;
-                    return Some(state.pid);
+                    newly_detected = true;
+                }
+            }
+            EVENT_TYPE_UNLINK | EVENT_TYPE_UNLINKAT => {
+                let state = self.processes.entry(event.pid).or_insert(ProcessState {
+                    score: 0,
+                    comm: String::new(),
+                    is_bot: false,
+                    last_open_time: None,
+                    open_count: 0,
+                });
+
+                state.score += 10;
+
+                let filename = unsafe {
+                    if event.event_type == EVENT_TYPE_UNLINK {
+                        &event.data.unlink.filename
+                    } else {
+                        &event.data.unlinkat.filename
+                    }
+                };
+
+                if Self::check_sensitive_extension(filename) {
+                    state.score += 10;
+                }
+
+                if !state.is_bot && state.score >= self.threshold {
+                    state.is_bot = true;
+                    newly_detected = true;
                 }
             }
             _ => {}
         }
 
-        None
+        if newly_detected {
+            Some(event.pid)
+        } else {
+            None
+        }
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use guardian_common::*;
 
     #[test]
     fn test_scoring() {
@@ -187,5 +224,28 @@ mod tests {
         };
 
         assert_eq!(analyzer.handle_event(fork_event), Some(101));
+    }
+
+    #[test]
+    fn test_unlink_scoring() {
+        let mut analyzer = Analyzer::new(20);
+        let mut event = GuardianEvent {
+            event_type: EVENT_TYPE_UNLINK,
+            pid: 1234,
+            data: EventData {
+                unlink: UnlinkEvent {
+                    pid: 1234,
+                    filename: [0; 64],
+                }
+            }
+        };
+
+        let filename = b"malicious.txt\0";
+        unsafe {
+            event.data.unlink.filename[..filename.len()].copy_from_slice(filename);
+        }
+
+        // 10 base + 10 for .txt = 20 (reaches threshold)
+        assert_eq!(analyzer.handle_event(event), Some(1234));
     }
 }
