@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use guardian_common::{GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK};
+use guardian_common::{
+    GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK,
+    EVENT_TYPE_UNLINK, EVENT_TYPE_UNLINKAT,
+};
 
 pub struct ProcessState {
     pub pid: u32,
@@ -72,6 +75,32 @@ impl Analyzer {
                     return Some(state.pid);
                 }
             }
+            EVENT_TYPE_UNLINK | EVENT_TYPE_UNLINKAT => {
+                let state = self.processes.entry(event.pid).or_insert(ProcessState {
+                    pid: event.pid,
+                    score: 0,
+                    comm: String::new(),
+                    is_bot: false,
+                    last_open_time: None,
+                    open_count: 0,
+                });
+
+                state.score += 10;
+
+                let unlink = unsafe { &event.data.unlink };
+                let filename = std::str::from_utf8(&unlink.filename)
+                    .unwrap_or("")
+                    .trim_matches(char::from(0));
+
+                if check_sensitive_extension(filename) {
+                    state.score += 10;
+                }
+
+                if !state.is_bot && state.score >= self.threshold {
+                    state.is_bot = true;
+                    return Some(state.pid);
+                }
+            }
             EVENT_TYPE_CONNECT => {
                 let state = self.processes.entry(event.pid).or_insert(ProcessState {
                     pid: event.pid,
@@ -132,6 +161,13 @@ impl Analyzer {
     }
 }
 
+fn check_sensitive_extension(filename: &str) -> bool {
+    let filename_lower = filename.to_lowercase();
+    filename_lower.ends_with(".pdf")
+        || filename_lower.ends_with(".txt")
+        || filename_lower.ends_with(".doc")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -187,5 +223,34 @@ mod tests {
         };
 
         assert_eq!(analyzer.handle_event(fork_event), Some(101));
+    }
+
+    #[test]
+    fn test_unlink_scoring() {
+        let mut analyzer = Analyzer::new(100);
+        let mut event = GuardianEvent {
+            event_type: EVENT_TYPE_UNLINK,
+            pid: 1234,
+            data: EventData {
+                unlink: UnlinkEvent {
+                    pid: 1234,
+                    filename: [0; 64],
+                },
+            },
+        };
+
+        // Regular file deletion
+        analyzer.handle_event(event);
+        assert_eq!(analyzer.processes.get(&1234).unwrap().score, 10);
+
+        // Document deletion
+        let filename = b"secret.pdf\0";
+        unsafe {
+            event.data.unlink.filename = [0; 64];
+            event.data.unlink.filename[..filename.len()].copy_from_slice(filename);
+        }
+        analyzer.handle_event(event);
+        // 10 (previous) + 10 (base) + 10 (doc) = 30
+        assert_eq!(analyzer.processes.get(&1234).unwrap().score, 30);
     }
 }
