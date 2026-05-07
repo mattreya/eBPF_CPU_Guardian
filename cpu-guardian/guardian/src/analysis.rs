@@ -1,6 +1,10 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use guardian_common::{GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK};
+use guardian_common::{
+    GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN,
+    EVENT_TYPE_FORK, EVENT_TYPE_UNLINK, EVENT_TYPE_UNLINKAT,
+    EventData, ExecEvent, ForkEvent, UnlinkEvent
+};
 
 pub struct ProcessState {
     pub pid: u32,
@@ -112,11 +116,44 @@ impl Analyzer {
                 }
                 state.last_open_time = Some(now);
 
-                let open = unsafe { event.data.open };
-                let filename = std::str::from_utf8(&open.filename)
+                let filename = unsafe { &event.data.open.filename };
+                let filename_str = std::str::from_utf8(filename)
                     .unwrap_or("")
                     .trim_matches(char::from(0));
-                if filename.ends_with(".pdf") || filename.ends_with(".txt") || filename.ends_with(".doc") {
+                if check_sensitive_extension(filename_str) {
+                    state.score += 10;
+                }
+
+                if !state.is_bot && state.score >= self.threshold {
+                    state.is_bot = true;
+                    return Some(state.pid);
+                }
+            }
+            EVENT_TYPE_UNLINK | EVENT_TYPE_UNLINKAT => {
+                let state = self.processes.entry(event.pid).or_insert(ProcessState {
+                    pid: event.pid,
+                    score: 0,
+                    comm: String::new(),
+                    is_bot: false,
+                    last_open_time: None,
+                    open_count: 0,
+                });
+
+                state.score += 10;
+
+                let filename = unsafe {
+                    if event.event_type == EVENT_TYPE_UNLINK {
+                        &event.data.unlink.filename
+                    } else {
+                        &event.data.unlinkat.filename
+                    }
+                };
+
+                let filename_str = std::str::from_utf8(filename)
+                    .unwrap_or("")
+                    .trim_matches(char::from(0));
+
+                if check_sensitive_extension(filename_str) {
                     state.score += 10;
                 }
 
@@ -132,10 +169,14 @@ impl Analyzer {
     }
 }
 
+fn check_sensitive_extension(filename: &str) -> bool {
+    let filename_lower = filename.to_lowercase();
+    filename_lower.ends_with(".pdf") || filename_lower.ends_with(".txt") || filename_lower.ends_with(".doc")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
-    use guardian_common::*;
 
     #[test]
     fn test_scoring() {
@@ -187,5 +228,28 @@ mod tests {
         };
 
         assert_eq!(analyzer.handle_event(fork_event), Some(101));
+    }
+
+    #[test]
+    fn test_unlink_scoring() {
+        let mut analyzer = Analyzer::new(20);
+        let mut event = GuardianEvent {
+            event_type: EVENT_TYPE_UNLINK,
+            pid: 1234,
+            data: EventData {
+                unlink: UnlinkEvent {
+                    pid: 1234,
+                    filename: [0; 64],
+                },
+            },
+        };
+
+        let filename = b"secret.pdf\0";
+        unsafe {
+            event.data.unlink.filename[..filename.len()].copy_from_slice(filename);
+        }
+
+        // 10 base + 10 for .pdf = 20 (threshold)
+        assert_eq!(analyzer.handle_event(event), Some(1234));
     }
 }
