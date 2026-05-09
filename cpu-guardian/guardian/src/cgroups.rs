@@ -11,6 +11,11 @@ impl CgroupManager {
         if !base_path.exists() {
             fs::create_dir_all(&base_path).expect("Failed to create cgroup directory");
         }
+
+        // Enable CPU controller for the subtree
+        let _ = fs::write("/sys/fs/cgroup/cgroup.subtree_control", "+cpu");
+        let _ = fs::write(base_path.join("cgroup.subtree_control"), "+cpu");
+
         Self { base_path }
     }
 
