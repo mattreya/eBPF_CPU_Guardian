@@ -1,5 +1,6 @@
 use std::fs;
 use std::path::PathBuf;
+use log::info;
 
 pub struct CgroupManager {
     base_path: PathBuf,
@@ -8,9 +9,17 @@ pub struct CgroupManager {
 impl CgroupManager {
     pub fn new() -> Self {
         let base_path = PathBuf::from("/sys/fs/cgroup/guardian");
+
+        // Ensure CPU controller is enabled in the root
+        let _ = fs::write("/sys/fs/cgroup/cgroup.subtree_control", "+cpu");
+
         if !base_path.exists() {
             fs::create_dir_all(&base_path).expect("Failed to create cgroup directory");
         }
+
+        // Enable CPU controller in the guardian cgroup
+        let _ = fs::write(base_path.join("cgroup.subtree_control"), "+cpu");
+
         Self { base_path }
     }
 
@@ -28,6 +37,7 @@ impl CgroupManager {
         fs::write(bot_cgroup.join("cpu.max"), format!("{} {}", max, period))?;
 
         // Move process to cgroup
+        info!("Moving PID {} to cgroup {:?}", pid, bot_cgroup);
         fs::write(bot_cgroup.join("cgroup.procs"), pid.to_string())?;
 
         Ok(())
