@@ -1,6 +1,9 @@
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use guardian_common::{GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK};
+use guardian_common::{
+    GuardianEvent, EVENT_TYPE_EXEC, EVENT_TYPE_CONNECT, EVENT_TYPE_OPEN, EVENT_TYPE_FORK,
+    EVENT_TYPE_UNLINK, EVENT_TYPE_UNLINKAT
+};
 
 pub struct ProcessState {
     pub pid: u32,
@@ -16,6 +19,11 @@ pub struct Analyzer {
     threshold: u32,
 }
 
+fn check_sensitive_extension(filename: &str) -> bool {
+    let filename_lower = filename.to_lowercase();
+    filename_lower.ends_with(".pdf") || filename_lower.ends_with(".txt") || filename_lower.ends_with(".doc")
+}
+
 impl Analyzer {
     pub fn new(threshold: u32) -> Self {
         Self {
@@ -25,6 +33,8 @@ impl Analyzer {
     }
 
     pub fn handle_event(&mut self, event: GuardianEvent) -> Option<u32> {
+        let mut score_increment = 0;
+
         match event.event_type {
             EVENT_TYPE_FORK => {
                 let fork = unsafe { event.data.fork };
@@ -66,28 +76,9 @@ impl Analyzer {
                 {
                     state.score += 50;
                 }
-
-                if !state.is_bot && state.score >= self.threshold {
-                    state.is_bot = true;
-                    return Some(state.pid);
-                }
             }
             EVENT_TYPE_CONNECT => {
-                let state = self.processes.entry(event.pid).or_insert(ProcessState {
-                    pid: event.pid,
-                    score: 0,
-                    comm: String::new(),
-                    is_bot: false,
-                    last_open_time: None,
-                    open_count: 0,
-                });
-
-                state.score += 5;
-
-                if !state.is_bot && state.score >= self.threshold {
-                    state.is_bot = true;
-                    return Some(state.pid);
-                }
+                score_increment = 5;
             }
             EVENT_TYPE_OPEN => {
                 let state = self.processes.entry(event.pid).or_insert(ProcessState {
@@ -116,16 +107,41 @@ impl Analyzer {
                 let filename = std::str::from_utf8(&open.filename)
                     .unwrap_or("")
                     .trim_matches(char::from(0));
-                if filename.ends_with(".pdf") || filename.ends_with(".txt") || filename.ends_with(".doc") {
+                if check_sensitive_extension(filename) {
                     state.score += 10;
                 }
+            }
+            EVENT_TYPE_UNLINK | EVENT_TYPE_UNLINKAT => {
+                score_increment = 10;
 
-                if !state.is_bot && state.score >= self.threshold {
-                    state.is_bot = true;
-                    return Some(state.pid);
+                let unlink = unsafe { event.data.unlink };
+                let filename = std::str::from_utf8(&unlink.filename)
+                    .unwrap_or("")
+                    .trim_matches(char::from(0));
+                if check_sensitive_extension(filename) {
+                    score_increment += 10;
                 }
             }
             _ => {}
+        }
+
+        if score_increment > 0 {
+            let state = self.processes.entry(event.pid).or_insert(ProcessState {
+                pid: event.pid,
+                score: 0,
+                comm: String::new(),
+                is_bot: false,
+                last_open_time: None,
+                open_count: 0,
+            });
+            state.score += score_increment;
+        }
+
+        if let Some(state) = self.processes.get_mut(&event.pid) {
+            if !state.is_bot && state.score >= self.threshold {
+                state.is_bot = true;
+                return Some(state.pid);
+            }
         }
 
         None
@@ -187,5 +203,38 @@ mod tests {
         };
 
         assert_eq!(analyzer.handle_event(fork_event), Some(101));
+    }
+
+    #[test]
+    fn test_unlink_scoring() {
+        let mut analyzer = Analyzer::new(100);
+
+        let mut event = GuardianEvent {
+            event_type: EVENT_TYPE_UNLINK,
+            pid: 200,
+            data: EventData {
+                unlink: UnlinkEvent {
+                    filename: [0; 64],
+                }
+            }
+        };
+
+        let filename = b"malicious_plan.pdf\0";
+        unsafe {
+            event.data.unlink.filename[..filename.len()].copy_from_slice(filename);
+        }
+
+        // Unlink (10) + sensitive extension (10) = 20
+        analyzer.handle_event(event);
+        assert_eq!(analyzer.processes.get(&200).unwrap().score, 20);
+
+        // Another sensitive unlink: 20 + 20 = 40
+        analyzer.handle_event(event);
+        assert_eq!(analyzer.processes.get(&200).unwrap().score, 40);
+
+        // 3 more to reach threshold 100
+        analyzer.handle_event(event); // 60
+        analyzer.handle_event(event); // 80
+        assert_eq!(analyzer.handle_event(event), Some(200)); // 100
     }
 }
